@@ -1,7 +1,9 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import admin from "firebase-admin";
+
+import { initializeApp, cert } from "firebase-admin/app";
+import { getFirestore } from "firebase-admin/firestore";
 
 dotenv.config();
 
@@ -9,15 +11,15 @@ dotenv.config();
 // FIREBASE ADMIN
 // ==========================
 
-admin.initializeApp({
-    credential: admin.credential.cert({
+const firebaseApp = initializeApp({
+    credential: cert({
         projectId: process.env.FIREBASE_PROJECT_ID,
         clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
         privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n")
     })
 });
 
-const firestore = admin.firestore();
+const firestore = getFirestore(firebaseApp);
 
 // ==========================
 // EXPRESS APP
