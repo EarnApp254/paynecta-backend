@@ -1,101 +1,71 @@
-require("dotenv").config();
-const express = require("express");
-const cors = require("cors");
-const axios = require("axios");
+import express from "express";
+import cors from "cors";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const app = express();
 
-app.use(express.json());
 app.use(cors());
+app.use(express.json());
 
-// ======================
-// TEST ROUTE
-// ======================
 app.get("/", (req, res) => {
-    res.send("Backend is running 🚀");
+    res.send("MEGASTAKE Paystack Backend Running");
 });
 
-// ======================
-// PAYNECTA KEYS (DIRECTLY ADDED)
-// ======================
-const PAYNECTA_API_KEY = "hmp_jf4l9FqKl3VC8qlQ5RASDIXVqe6oCZCTbjKC8nsa";
-const PAYNECTA_PUBLISHABLE_KEY = "ISPubKey_live_2f1fbe1d-3f94-4456-87e3-22e8c4e2012c";
-
-// ======================
-// PAY (STK PUSH)
-// ======================
-app.post("/pay", async (req, res) => {
-    const { phone } = req.body;
-
-    // Validate Kenyan number
-    if (!/^254[71]\d{8}$/.test(phone)) {
-        return res.status(400).json({
-            success: false,
-            message: "Invalid phone number"
-        });
-    }
-
-    const amount = 200;
+app.post("/stkpush", async (req, res) => {
 
     try {
-        const response = await axios.post(
-            "https://api.paynecta.com/stkpush",
+
+        const { phone, amount, email } = req.body;
+
+        const response = await fetch(
+            "https://api.paystack.co/charge",
             {
-                phone: phone,
-                amount: amount,
-                account_reference: "EARN_APP",
-                transaction_desc: "Website Payment",
-                callback_url: "https://backed-1-vbvl.onrender.com"
-            },
-            {
+                method: "POST",
                 headers: {
-                    Authorization: `Bearer ${hmp_jf4l9FqKl3VC8qlQ5RASDIXVqe6oCZCTbjKC8nsa}`,
-                    "Content-Type": "application/json",
-                    "ISPubKey_live_2f1fbe1d-3f94-4456-87e3-22e8c4e2012c ":PAYNECTA_PUBLISHABLE_KEY
-                }
+                    Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    email,
+                    amount: amount * 100,
+                    mobile_money: {
+                        phone,
+                        provider: "mpesa"
+                    }
+                })
             }
         );
 
-        console.log("STK Push sent ✔");
+        const data = await response.json();
 
-        res.json({
-            success: true,
-            message: "Check your phone for M-Pesa popup 📱"
-        });
+        res.json(data);
 
     } catch (error) {
-        console.log("PAYNECTA ERROR:", error.response?.data || error.message);
+
+        console.error(error);
 
         res.status(500).json({
-            success: false,
-            message: "Payment failed"
+            status: false,
+            message: error.message
         });
+
     }
+
 });
 
-// ======================
-// WEBHOOK
-// ======================
-app.post("/webhook/paynecta", (req, res) => {
-    const event = req.body.event;
-    const data = req.body.data;
-
-    console.log("Webhook event:", event);
-    console.log("Data:", data);
-
-    if (event === "payment.success") {
-        console.log("✅ Payment Successful");
-    }
-
-    if (event === "payment.failed") {
-        console.log("❌ Payment Failed");
-    }
-
-    res.sendStatus(200);
-});
-
-// ======================
 const PORT = process.env.PORT || 3000;
+
 app.listen(PORT, () => {
-    console.log("Server running on port", PORT);
+    console.log(`Server running on port ${PORT}`);
+});
+
+
+
+app.get("/health", (req, res) => {
+    res.json({
+        status: true,
+        message: "Backend is working"
+    });
 });
