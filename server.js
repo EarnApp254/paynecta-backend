@@ -73,229 +73,6 @@ app.post(
             // TRANSFER SUCCESS
             // ==========================
 
-
-            // ==========================
-// DEPOSIT SUCCESS
-// ==========================
-
-if (event.event === "charge.success") {
-
-    const charge =
-        event.data;
-
-    const reference =
-        charge.reference;
-
-    console.log(
-        "DEPOSIT SUCCESS:",
-        reference
-    );
-
-    // ==========================
-    // FIND DEPOSIT
-    // ==========================
-
-    const depositRef =
-        firestore
-            .collection("deposits")
-            .doc(reference);
-
-    // ==========================
-    // GET USER FROM METADATA
-    // ==========================
-
-    const uid =
-        charge.metadata?.uid;
-
-    if (!uid) {
-
-        console.error(
-            "DEPOSIT HAS NO UID:",
-            reference
-        );
-
-        return res.sendStatus(200);
-    }
-
-    // ==========================
-    // CREDIT BALANCE
-    // ==========================
-
-    await firestore.runTransaction(
-        async (transaction) => {
-
-            const depositSnap =
-                await transaction.get(
-                    depositRef
-                );
-
-            // Deposit record doesn't exist
-            if (!depositSnap.exists) {
-
-                console.error(
-                    "DEPOSIT RECORD NOT FOUND:",
-                    reference
-                );
-
-                return;
-            }
-
-            const deposit =
-                depositSnap.data();
-
-            // ==========================
-            // PREVENT DOUBLE CREDIT
-            // ==========================
-
-            if (
-                deposit.credited === true
-            ) {
-
-                console.log(
-                    "DEPOSIT ALREADY CREDITED:",
-                    reference
-                );
-
-                return;
-            }
-
-            // ==========================
-            // VERIFY AMOUNT
-            // ==========================
-
-            const paidAmount =
-                Number(charge.amount) / 100;
-
-            const expectedAmount =
-                Number(deposit.amount);
-
-            if (
-                paidAmount !== expectedAmount
-            ) {
-
-                console.error(
-                    "DEPOSIT AMOUNT MISMATCH:",
-                    {
-                        reference,
-                        paidAmount,
-                        expectedAmount
-                    }
-                );
-
-                return;
-            }
-
-            // ==========================
-            // USER
-            // ==========================
-
-            const userRef =
-                firestore
-                    .collection("users")
-                    .doc(uid);
-
-            const userSnap =
-                await transaction.get(
-                    userRef
-                );
-
-            if (!userSnap.exists) {
-
-                console.error(
-                    "USER NOT FOUND:",
-                    uid
-                );
-
-                return;
-            }
-
-            const userData =
-                userSnap.data();
-
-            const currentBalance =
-                Number(
-                    userData.balance || 0
-                );
-
-            // ==========================
-            // NEW BALANCE
-            // ==========================
-
-            const newBalance =
-                currentBalance +
-                expectedAmount;
-
-            // ==========================
-            // UPDATE BALANCE
-            // ==========================
-
-            transaction.update(
-                userRef,
-                {
-                    balance:
-                        newBalance
-                }
-            );
-
-            // ==========================
-            // MARK DEPOSIT CREDITED
-            // ==========================
-
-            transaction.update(
-                depositRef,
-                {
-                    status:
-                        "successful",
-
-                    credited:
-                        true,
-
-                    paidAmount,
-
-                    completedAt:
-                        FieldValue.serverTimestamp()
-                }
-            );
-
-            // ==========================
-            // SAVE TRANSACTION HISTORY
-            // ==========================
-
-            const transactionRef =
-                userRef
-                    .collection("transactions")
-                    .doc(reference);
-
-            transaction.set(
-                transactionRef,
-                {
-                    type:
-                        "deposit",
-
-                    amount:
-                        expectedAmount,
-
-                    reference,
-
-                    status:
-                        "successful",
-
-                    createdAt:
-                        FieldValue.serverTimestamp()
-                }
-            );
-
-            console.log(
-                `BALANCE UPDATED: ${uid} + KSH ${expectedAmount}`
-            );
-
-        }
-    );
-
-    return res.sendStatus(200);
-}
-
-
             if (event.event === "transfer.success") {
 
                 const transfer = event.data;
@@ -446,95 +223,28 @@ app.get("/firebase-test", async (req, res) => {
 
 });
 
-
-
 // ==========================
-// STK PUSH / DEPOSIT
+// STK PUSH
 // ==========================
 
 app.post("/stkpush", async (req, res) => {
 
     try {
 
-        // ==========================
-        // AUTHENTICATE FIREBASE USER
-        // ==========================
-
-        const authHeader =
-            req.headers.authorization || "";
-
-        if (!authHeader.startsWith("Bearer ")) {
-
-            return res.status(401).json({
-                status: false,
-                message: "Authentication required"
-            });
-
-        }
-
-        const idToken =
-            authHeader.split("Bearer ")[1];
-
-        const decodedToken =
-            await firebaseAuth.verifyIdToken(idToken);
-
-        const uid =
-            decodedToken.uid;
-
-        // ==========================
-        // INPUT
-        // ==========================
-
         const {
             phone,
-            amount
+            amount,
+            email
         } = req.body;
 
-        const depositAmount =
-            Number(amount);
-
-        if (!phone || !Number.isFinite(depositAmount)) {
+        if (!phone || !amount || !email) {
 
             return res.status(400).json({
                 status: false,
-                message: "Invalid deposit details"
+                message: "Missing required fields"
             });
 
         }
-
-        if (
-            !Number.isInteger(depositAmount) ||
-            depositAmount < 10
-        ) {
-
-            return res.status(400).json({
-                status: false,
-                message: "Minimum deposit is KSH 10"
-            });
-
-        }
-
-        if (depositAmount > 150000) {
-
-            return res.status(400).json({
-                status: false,
-                message:
-                    "Maximum deposit is KSH 150,000"
-            });
-
-        }
-
-        // ==========================
-        // EMAIL
-        // ==========================
-
-        const email =
-            decodedToken.email ||
-            `${uid}@megastake.com`;
-
-        // ==========================
-        // PAYSTACK CHARGE
-        // ==========================
 
         const response = await fetch(
             "https://api.paystack.co/charge",
@@ -554,20 +264,11 @@ app.post("/stkpush", async (req, res) => {
                     email,
 
                     amount:
-                        depositAmount * 100,
-
-                    currency: "KES",
+                        Math.round(Number(amount) * 100),
 
                     mobile_money: {
                         phone,
                         provider: "mpesa"
-                    },
-
-                    // IMPORTANT:
-                    // This lets the webhook know
-                    // which Firebase user made the deposit.
-                    metadata: {
-                        uid: uid
                     }
 
                 })
@@ -582,105 +283,20 @@ app.post("/stkpush", async (req, res) => {
             data
         );
 
-        // ==========================
-        // PAYSTACK FAILED
-        // ==========================
-
-        if (!response.ok || !data.status) {
-
-            return res.status(400).json({
-                status: false,
-                message:
-                    data.message ||
-                    "Could not initiate deposit"
-            });
-
-        }
-
-        // ==========================
-        // GET PAYSTACK REFERENCE
-        // ==========================
-
-        const reference =
-            data.data?.reference;
-
-        if (!reference) {
-
-            return res.status(500).json({
-                status: false,
-                message:
-                    "Paystack did not return a reference"
-            });
-
-        }
-
-        // ==========================
-        // SAVE DEPOSIT
-        // ==========================
-
-        await firestore
-            .collection("deposits")
-            .doc(reference)
-            .set({
-
-                uid,
-
-                amount:
-                    depositAmount,
-
-                currency: "KES",
-
-                phone,
-
-                reference,
-
-                status: "pending",
-
-                credited: false,
-
-                createdAt:
-                    FieldValue.serverTimestamp()
-
-            });
-
-        // ==========================
-        // RETURN TO FRONTEND
-        // ==========================
-
-        return res.json({
-
-            status: true,
-
-            message:
-                data.message ||
-                "STK Push sent",
-
-            reference,
-
-            data: data.data
-
-        });
+        res.json(data);
 
     } catch (error) {
 
-        console.error(
-            "STK PUSH ERROR:",
-            error
-        );
+        console.error(error);
 
-        return res.status(500).json({
+        res.status(500).json({
             status: false,
-            message:
-                "Could not initiate deposit"
+            message: error.message
         });
 
     }
 
 });
-
-
-
-
 
 // ==========================
 // VERIFY PAYMENT
